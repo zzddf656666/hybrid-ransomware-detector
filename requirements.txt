@@ -1,0 +1,19 @@
+# All dependencies are pure-Python (architecture-independent) or ship prebuilt
+# wheels for x86_64 AND ARM64 on Windows, macOS, and Linux — so pip installs the
+# correct build automatically (incl. Apple Silicon). No CPU-arch pinning; no
+# source compilation required.
+
+# Core
+requests
+schedule
+python-dotenv
+
+# Document parsing
+PyPDF2
+python-docx
+pdf2image           # also needs the system package "poppler"
+pytesseract         # also needs the system package "tesseract-ocr"
+Pillow              # ships x86_64 + arm64 wheels for all major OSes
+
+# Windows-only (optional — only needed for the --create-shortcut .lnk feature)
+# pywin32 ; sys_platform == "win32"

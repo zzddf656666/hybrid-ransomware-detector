@@ -1,0 +1,38 @@
+# --- Secrets (NEVER commit) ---
+.env
+*.key
+secrets.*
+
+# --- Datasets / large data (provide a link in the README instead) ---
+*.csv
+*.csv~
+data_file*
+/data/
+/datasets/
+
+# --- Scanner runtime output ---
+scan_reports/
+*.log
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Misc heavy/binary files that shouldn't live in a code repo ---
+*.mp4
+*.zip
+*.rar
+*.docx
+*.dotx
+*.pptx
