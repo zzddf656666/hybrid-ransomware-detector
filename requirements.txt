@@ -15,5 +15,9 @@ pdf2image           # also needs the system package "poppler"
 pytesseract         # also needs the system package "tesseract-ocr"
 Pillow              # ships x86_64 + arm64 wheels for all major OSes
 
+# Graphical interface (gui.py / --gui)
+customtkinter       # pure-Python; needs Tkinter (bundled on Windows/macOS;
+                    # on Debian/Ubuntu: sudo apt-get install python3-tk)
+
 # Windows-only (optional — only needed for the --create-shortcut .lnk feature)
 # pywin32 ; sys_platform == "win32"

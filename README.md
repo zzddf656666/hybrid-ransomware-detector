@@ -55,6 +55,7 @@ A file is marked **malicious** if any single layer flags it. The VirusTotal and 
 
 - Scans `.pdf`, `.docx`, and `.doc` files across one or more directories.
 - Three independent detection layers fused into one score.
+- **Desktop GUI** (`gui.py`) — dark dashboard with live scan progress, per-layer result breakdown, report browser, dataset import, live logs, and settings. The CLI remains fully independent.
 - OCR fallback so image-only / scanned PDFs are still analysed.
 - Detailed **JSON** report + human-readable **TXT** summary per scan.
 - Scheduled background scanning (default: every 6 hours).
@@ -73,6 +74,8 @@ A file is marked **malicious** if any single layer flags it. The VirusTotal and 
 - **Windows:** install **Tesseract OCR** and **Poppler**, and add both to your `PATH`.
 - **macOS:** `brew install tesseract poppler`
 - **Linux (Debian/Ubuntu):** `sudo apt-get install tesseract-ocr poppler-utils`
+
+**For the GUI only — Tkinter.** Bundled with the official Python installers on Windows and macOS. On minimal Linux installs: `sudo apt-get install python3-tk`.
 
 ---
 
@@ -121,6 +124,11 @@ A suitable dataset can be sourced from public malware-hash collections on Kaggle
 ## Usage
 
 ```bash
+# Launch the graphical interface
+python gui.py
+# (equivalent)
+python RansomwareScanner.py --gui
+
 # Run a one-off scan now
 python RansomwareScanner.py --scan-now
 
@@ -139,6 +147,26 @@ python RansomwareScanner.py --create-shortcut
 ```
 
 Scan directories, file extensions, and the scan interval are configured in the `CONFIG` block near the top of `RansomwareScanner.py`. All paths are derived from the user's home directory via `pathlib`, so they adapt automatically to the host OS.
+
+---
+
+## Graphical interface
+
+A desktop front-end built with CustomTkinter that uses the scanner as a library — the CLI keeps working exactly as before, and both share the same configuration, reports, and hash database.
+
+![Dashboard](docs/screenshot-dashboard.png)
+
+**Dashboard.** The three detection layers each get a status card, scans run with live per-file progress, and every result row shows the per-layer breakdown (`hash ✓ · VT 14/72 · AI 0.80`) next to a 0–10 severity bar. Double-click any row for the full report on that file.
+
+![Result detail](docs/screenshot-detail.png)
+
+**Result detail.** Hashes, verdict, and what each layer concluded — including the suspicious elements found by the LLM layer and a direct link to the VirusTotal report.
+
+![Scan page](docs/screenshot-scan.png)
+
+**Scan, Reports, Database, Logs, Settings.** Manage monitored directories and file types, browse past JSON/TXT reports, import the malware-hash dataset, follow the live log stream, schedule recurring scans, toggle start-at-login (same mechanism as `--setup-autostart`), and store API keys — keys are written only to the git-ignored `.env` file, never anywhere else.
+
+Engineering notes: scanning runs in a worker thread and communicates with the UI through queues (Tkinter is not thread-safe); *Stop* cancels cleanly after the file currently being scanned; results stream into the table as each file completes.
 
 ### How autostart works per platform
 
@@ -174,7 +202,10 @@ A full machine-readable `ransomware_scan_<timestamp>.json` is written alongside 
 
 ```
 hybrid-ransomware-detector/
-├── RansomwareScanner.py     # main scanner (cross-platform)
+├── RansomwareScanner.py     # main scanner + CLI (cross-platform)
+├── gui.py                   # desktop GUI (uses the scanner as a library)
+├── test_smoke.py            # functional smoke test for the scanner
+├── docs/                    # screenshots used in this README
 ├── requirements.txt
 ├── .env.example             # template for API keys
 ├── .gitignore

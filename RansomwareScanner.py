@@ -492,35 +492,66 @@ class RansomwareScanner:
         logger.info(f"Scan completed for {file_path}. Malicious: {result['is_malicious']}, Severity: {result['severity_score']}")
         return result
     
-    def scan_directory(self, directory: str) -> List[Dict]:
-        """Scan all PDF and Word files in a directory for ransomware indicators."""
-        results = []
-        
+    def _collect_target_files(self, directory: str) -> List[str]:
+        """Walk a directory tree and return every file matching the configured extensions."""
+        targets = []
         try:
             for root, _, files in os.walk(directory):
                 for filename in files:
                     if any(filename.lower().endswith(ext) for ext in self.file_extensions):
-                        file_path = os.path.join(root, filename)
-                        result = self.scan_file(file_path)
-                        results.append(result)
+                        targets.append(os.path.join(root, filename))
         except Exception as e:
-            logger.error(f"Error scanning directory {directory}: {str(e)}")
-        
+            logger.error(f"Error walking directory {directory}: {str(e)}")
+        return targets
+
+    def _scan_targets(self, targets: List[str], progress_callback=None,
+                      cancel_event=None) -> List[Dict]:
+        """Scan a list of files, optionally reporting progress and honouring cancellation.
+
+        progress_callback: optional callable(done, total, file_path, result) invoked
+            after each file completes. Used by the GUI; CLI callers pass nothing.
+        cancel_event: optional threading.Event-like object. When set, the scan stops
+            cleanly after the file currently being scanned (a file mid-scan is never
+            left half-analysed).
+        """
+        results = []
+        total = len(targets)
+        for index, file_path in enumerate(targets, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info(f"Scan cancelled by user after {len(results)}/{total} files.")
+                break
+            try:
+                result = self.scan_file(file_path)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Error scanning file {file_path}: {str(e)}")
+                continue
+            if progress_callback is not None:
+                try:
+                    progress_callback(index, total, file_path, result)
+                except Exception as e:
+                    logger.error(f"Progress callback error: {str(e)}")
         return results
+
+    def scan_directory(self, directory: str, progress_callback=None,
+                       cancel_event=None) -> List[Dict]:
+        """Scan all PDF and Word files in a directory for ransomware indicators."""
+        targets = self._collect_target_files(directory)
+        return self._scan_targets(targets, progress_callback, cancel_event)
     
-    def scan_all_directories(self) -> List[Dict]:
+    def scan_all_directories(self, progress_callback=None,
+                             cancel_event=None) -> List[Dict]:
         """Scan all configured directories for ransomware indicators."""
-        all_results = []
+        targets = []
         
         for directory in self.scan_dirs:
             if os.path.exists(directory):
                 logger.info(f"Scanning directory: {directory}")
-                results = self.scan_directory(directory)
-                all_results.extend(results)
+                targets.extend(self._collect_target_files(directory))
             else:
                 logger.warning(f"Directory does not exist: {directory}")
         
-        return all_results
+        return self._scan_targets(targets, progress_callback, cancel_event)
     
     def generate_report(self, results: List[Dict]) -> str:
         """Generate a comprehensive report based on scan results."""
@@ -864,6 +895,53 @@ def create_desktop_shortcut() -> bool:
     return False
 
 
+def import_hash_database(source_path: str, destination_path: str = None) -> Dict:
+    """Copy a malware-hash CSV into the app data directory and validate its format.
+
+    Shared by the CLI (--import-database) and the GUI so both use one code path.
+    Returns a dict:
+        ok               True when the copy succeeded and all required columns exist
+        error_kind       None | "missing_source" | "exception"
+        message          human-readable status
+        destination      final path of the database
+        entries          number of data rows found
+        missing_columns  required columns absent from the header
+    """
+    destination_path = destination_path or CONFIG["kaggle_database_path"]
+    outcome = {"ok": False, "error_kind": None, "message": "",
+               "destination": destination_path, "entries": 0, "missing_columns": []}
+
+    if not os.path.exists(source_path):
+        outcome["error_kind"] = "missing_source"
+        outcome["message"] = f"Cannot find database file at {source_path}"
+        return outcome
+
+    try:
+        shutil.copy2(source_path, destination_path)
+
+        with open(destination_path, mode="r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            header = reader.fieldnames or []
+            outcome["entries"] = sum(1 for _ in reader)
+
+        required_columns = ['FileName', 'md5Hash', 'Benign']
+        outcome["missing_columns"] = [col for col in required_columns if col not in header]
+        outcome["ok"] = not outcome["missing_columns"]
+        outcome["message"] = (
+            f"Database format validated. Found {outcome['entries']} entries."
+            if outcome["ok"]
+            else f"Missing required columns: {', '.join(outcome['missing_columns'])}"
+        )
+        logger.info(f"Hash database imported from {source_path} -> {destination_path} "
+                    f"({outcome['entries']} entries)")
+        return outcome
+    except Exception as e:
+        outcome["error_kind"] = "exception"
+        outcome["message"] = str(e)
+        logger.error(f"Error importing database: {e}")
+        return outcome
+
+
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
@@ -880,8 +958,21 @@ def main():
                         help="Create a desktop shortcut/launcher (Windows/Linux)")
     parser.add_argument("--import-database",
                         help="Import a malware-hash CSV database from the given path")
+    parser.add_argument("--gui", action="store_true",
+                        help="Launch the graphical interface")
 
     args = parser.parse_args()
+
+    if args.gui:
+        try:
+            import gui
+        except ImportError as e:
+            print("The GUI needs the 'customtkinter' package. Install it with:")
+            print("    pip install customtkinter")
+            print(f"Details: {e}")
+            return
+        gui.main()
+        return
 
     # Display a welcome banner for interactive use
     if not (args.background or args.setup_autostart or args.remove_autostart
@@ -910,29 +1001,21 @@ def main():
         return
 
     if args.import_database:
-        if not os.path.exists(args.import_database):
+        outcome = import_hash_database(args.import_database)
+        if outcome["error_kind"] == "missing_source":
             print(f"Error: Cannot find database file at {args.import_database}")
             return
-        try:
-            shutil.copy2(args.import_database, CONFIG['kaggle_database_path'])
-            print(f"✅ Successfully imported database from {args.import_database}")
-            print(f"   Database saved to {CONFIG['kaggle_database_path']}")
-
-            with open(CONFIG['kaggle_database_path'], mode="r", encoding="utf-8", newline="") as f:
-                reader = csv.DictReader(f)
-                header = reader.fieldnames or []
-                row_count = sum(1 for _ in reader)
-            required_columns = ['FileName', 'md5Hash', 'Benign']
-            missing_columns = [col for col in required_columns if col not in header]
-            if missing_columns:
-                print(f"⚠️  Missing required columns: {', '.join(missing_columns)}")
-                print("   The scanner may not work properly without these columns.")
-            else:
-                print(f"✅ Database format validated. Found {row_count} entries.")
+        if outcome["error_kind"] == "exception":
+            print(f"❌ Error importing database: {outcome['message']}")
             return
-        except Exception as e:
-            print(f"❌ Error importing database: {e}")
-            return
+        print(f"✅ Successfully imported database from {args.import_database}")
+        print(f"   Database saved to {outcome['destination']}")
+        if outcome["missing_columns"]:
+            print(f"⚠️  Missing required columns: {', '.join(outcome['missing_columns'])}")
+            print("   The scanner may not work properly without these columns.")
+        else:
+            print(f"✅ Database format validated. Found {outcome['entries']} entries.")
+        return
 
     # Warn if API keys are not configured (set them in a local .env file)
     if not CONFIG["chatgpt_api_key"] or not CONFIG["virustotal_api_key"]:
