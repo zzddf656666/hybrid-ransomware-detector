@@ -1,4 +1,4 @@
-# Hybrid Ransomware Detection System
+# 🛡️ Hybrid Ransomware Detection System
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -13,7 +13,25 @@ Built as my B.Sc. graduation project (Grade: B+). It is intended for **defensive
 
 ---
 
-## Why "hybrid"?
+## 📖 Table of Contents
+
+- [🧩 Why "hybrid"?](#-why-hybrid)
+- [🔬 Detection layers](#-detection-layers)
+- [✨ Features](#-features)
+- [📦 Requirements](#-requirements)
+- [🚀 Installation](#-installation)
+- [🔑 Configuration](#-configuration)
+- [💻 Usage](#-usage)
+- [🪟 Graphical interface](#-graphical-interface)
+- [📂 Project structure](#-project-structure)
+- [🌐 Cross-platform & architecture notes](#-cross-platform--architecture-notes)
+- [🧭 Roadmap](#-roadmap)
+- [🚨 Disclaimer](#-disclaimer)
+- [👤 Author](#-author)
+
+---
+
+## 🧩 Why "hybrid"?
 
 Most lightweight scanners rely on a single technique (usually a hash lookup), which misses anything not already in a database. This tool layers three complementary approaches, so a file flagged by **any** of them is surfaced, and the more layers agree, the higher the severity:
 
@@ -30,7 +48,7 @@ flowchart TD
 
 ---
 
-## Detection layers
+## 🔬 Detection layers
 
 1. **Local hash database (static).** Computes the file's MD5 **and SHA-256** using memory-efficient **chunked reads** (constant memory regardless of file size), then checks the MD5 against a **streamed CSV** of known-malicious hashes loaded into an **O(1) lookup set**. Instant, offline detection of known samples.
 2. **VirusTotal (threat intelligence).** Submits the file to the VirusTotal v3 API and reads how many engines flag it, producing a detection ratio.
@@ -51,7 +69,7 @@ A file is marked **malicious** if any single layer flags it. The VirusTotal and 
 
 ---
 
-## Features
+## ✨ Features
 
 - Scans `.pdf`, `.docx`, and `.doc` files across one or more directories.
 - Three independent detection layers fused into one score.
@@ -65,7 +83,7 @@ A file is marked **malicious** if any single layer flags it. The VirusTotal and 
 
 ---
 
-## Requirements
+## 📦 Requirements
 
 **Python:** 3.9+ (see `requirements.txt` — all dependencies provide x86_64 and ARM64 wheels, so installation needs no compiler).
 
@@ -79,7 +97,7 @@ A file is marked **malicious** if any single layer flags it. The VirusTotal and 
 
 ---
 
-## Installation
+## 🚀 Installation
 
 ```bash
 git clone https://github.com/<your-username>/hybrid-ransomware-detector.git
@@ -92,7 +110,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Configuration
+## 🔑 Configuration
 
 API keys are loaded from a local `.env` file and are **never** stored in the code.
 
@@ -121,7 +139,7 @@ A suitable dataset can be sourced from public malware-hash collections on Kaggle
 
 ---
 
-## Usage
+## 💻 Usage
 
 ```bash
 # Launch the graphical interface
@@ -150,7 +168,7 @@ Scan directories, file extensions, and the scan interval are configured in the `
 
 ---
 
-## Graphical interface
+## 🪟 Graphical interface
 
 A desktop front-end built with CustomTkinter that uses the scanner as a library — the CLI keeps working exactly as before, and both share the same configuration, reports, and hash database.
 
@@ -165,6 +183,8 @@ A desktop front-end built with CustomTkinter that uses the scanner as a library 
 ![Scan page](docs/screenshot-scan.png)
 
 **Scan, Reports, Database, Logs, Settings.** Manage monitored directories and file types, browse past JSON/TXT reports, import the malware-hash dataset, follow the live log stream, schedule recurring scans, toggle start-at-login (same mechanism as `--setup-autostart`), and store API keys — keys are written only to the git-ignored `.env` file, never anywhere else.
+
+![Settings](docs/screenshot-settings.png)
 
 Engineering notes: scanning runs in a worker thread and communicates with the UI through queues (Tkinter is not thread-safe); *Stop* cancels cleanly after the file currently being scanned; results stream into the table as each file completes.
 
@@ -198,7 +218,7 @@ A full machine-readable `ransomware_scan_<timestamp>.json` is written alongside 
 
 ---
 
-## Project structure
+## 📂 Project structure
 
 ```
 hybrid-ransomware-detector/
@@ -215,7 +235,7 @@ hybrid-ransomware-detector/
 
 ---
 
-## Cross-platform & architecture notes
+## 🌐 Cross-platform & architecture notes
 
 - **OS-aware paths:** all runtime paths (app dir, logs, reports, default scan folder) are built from `Path.home()`, so nothing is hardcoded to a single OS.
 - **No architecture lock-in:** dependencies are pure-Python or ship both x86_64 and ARM64 wheels (Windows/macOS/Linux), so `pip install` resolves the right build automatically — including Apple Silicon.
@@ -223,7 +243,7 @@ hybrid-ransomware-detector/
 
 ---
 
-## Roadmap
+## 🧭 Roadmap
 
 Planned / experimental additions (prototyped in a separate branch):
 
@@ -233,11 +253,11 @@ Planned / experimental additions (prototyped in a separate branch):
 
 ---
 
-## Disclaimer
+## 🚨 Disclaimer
 
 This project is for **educational and defensive** purposes only — identifying potentially malicious documents. Do not use it to create or distribute malware. Always analyse untrusted files in an isolated environment.
 
-## Author
+## 👤 Author
 
 **Abdelrahman Fekry El-Maghraby** — Cybersecurity Specialist
 [LinkedIn](https://www.linkedin.com/in/abdelrahman-el-maghraby-994a8b226)
