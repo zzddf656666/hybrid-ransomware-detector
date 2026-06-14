@@ -316,16 +316,30 @@ A full machine-readable `ransomware_scan_<timestamp>.json` (with the complete pe
 
 ```
 hybrid-ransomware-detector/
-├── RansomwareScanner.py     # main scanner + CLI (cross-platform)
-├── gui.py                   # desktop GUI (uses the scanner as a library)
-├── test_smoke.py            # functional smoke test for the scanner
-├── docs/                    # screenshots used in this README
+├── RansomwareScanner.py        # main scanner + CLI (cross-platform)
+├── gui.py                      # desktop GUI (uses the scanner as a library)
+├── test_smoke.py               # functional + scoring/regression smoke tests
+├── detectors/                  # modular, independently-optional detection engines
+│   ├── __init__.py
+│   ├── fuzzy_hash.py           # TLSH + ssdeep structural hashing
+│   ├── macro_analysis.py       # olevba VBA/XLM macro triage
+│   ├── yara_engine.py          # YARA rule compilation + scanning
+│   ├── llm_backends.py         # pluggable LLM (local Ollama / cloud OpenAI / none)
+│   └── scoring.py              # transparent weighted scoring matrix
+├── rules/                      # YARA rules (drop in your own .yar files)
+│   ├── ransomware_generic.yar
+│   └── office_dropper.yar
+├── fuzzy_signatures.sample.json # documented placeholder fuzzy signature DB
+├── docs/                       # screenshots + DETECTION_v3.md design doc
 ├── requirements.txt
-├── .env.example             # template for API keys
+├── CHANGELOG.md
+├── .env.example                # template for keys + LLM backend settings
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
+
+See [`docs/DETECTION_v3.md`](docs/DETECTION_v3.md) for a deep dive on each layer and the scoring design, and [`CHANGELOG.md`](CHANGELOG.md) for the version history.
 
 ---
 
@@ -339,11 +353,14 @@ hybrid-ransomware-detector/
 
 ## 🧭 Roadmap
 
-Planned / experimental additions (prototyped in a separate branch):
+Delivered in v3.0.0: fuzzy hashing, macro analysis, a YARA engine, a local-first
+LLM backend, and a configurable weighted scoring matrix (see the
+[changelog](CHANGELOG.md)). Next on the list:
 
 - **Behavioural / static heuristics:** Shannon-entropy analysis (encryption indicator), NTFS Alternate Data Stream (ADS) detection, hidden-content detection, and file-integrity baselining.
-- Configurable scoring weight per detection layer, and pluggable detection backends.
-- Optional local-model (offline) alternative to the cloud LLM layer.
+- **GUI controls for the new layers:** in-app LLM-provider selector and per-layer toggles (today the LLM backend is chosen via `.env` / `--llm-provider`).
+- **Richer detection content:** a broader bundled YARA rule set and a curated starter fuzzy-signature database.
+- **Optional dynamic analysis:** sandboxed macro detonation for higher-fidelity verdicts.
 
 ---
 
