@@ -19,5 +19,22 @@ Pillow              # ships x86_64 + arm64 wheels for all major OSes
 customtkinter       # pure-Python; needs Tkinter (bundled on Windows/macOS;
                     # on Debian/Ubuntu: sudo apt-get install python3-tk)
 
+# --- Detection layers (all optional; the scanner degrades gracefully if any
+#     are missing, so a minimal install still runs the hash + DB layers) -------
+
+# Fuzzy / similarity hashing (polymorphic family detection)
+python-tlsh         # TLSH locality-sensitive hash; prebuilt wheels x86_64+arm64
+ppdeep              # pure-Python ssdeep; no libfuzzy/compiler needed
+
+# VBA / XLM macro analysis for Office documents (dropper detection)
+oletools            # pure-Python; provides olevba
+
+# YARA structural pattern matching (IOCs)
+yara-python         # ships prebuilt wheels for x86_64 + arm64 on all major OSes
+
+# Local LLM backend for OPSEC (no extra Python dep — talks to a running Ollama
+# server over HTTP via 'requests', already listed above). Install Ollama itself
+# from https://ollama.com and pull a model, e.g.:  ollama pull llama3.1
+
 # Windows-only (optional — only needed for the --create-shortcut .lnk feature)
 # pywin32 ; sys_platform == "win32"

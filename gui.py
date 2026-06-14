@@ -119,30 +119,106 @@ def severity_bar(score: float) -> str:
     return "█" * filled + "─" * (10 - filled) + f"  {score:.1f}"
 
 
+# Verdict bands mirror detectors/scoring.py. Colours map band -> palette.
+VERDICT_COLORS = {
+    "Critical": RED,
+    "High": RED_SOFT,
+    "Medium": AMBER_SOFT,
+    "Low": ACCENT_SOFT,
+    "Clean": MUTED,
+}
+
+
+def verdict_color(verdict: str) -> str:
+    return VERDICT_COLORS.get(verdict, ACCENT_SOFT)
+
+
+def result_verdict(result: dict) -> str:
+    """The engine's verdict band, with a fallback for legacy (pre-v3) results."""
+    v = result.get("verdict")
+    if v:
+        return v
+    if not result.get("is_malicious"):
+        return "Clean"
+    sev = float(result.get("severity_score", 0) or 0)   # legacy 0-10
+    if sev >= 8:
+        return "Critical"
+    if sev >= 5:
+        return "High"
+    if sev >= 2.5:
+        return "Medium"
+    return "Low"
+
+
+def result_risk(result: dict) -> int:
+    """The 0-100 risk score, derived from the legacy severity for old results."""
+    if "risk_score" in result and result.get("risk_score") is not None:
+        return int(result.get("risk_score") or 0)
+    return int(round(float(result.get("severity_score", 0) or 0) * 10))
+
+
+def risk_bar(risk: int) -> str:
+    filled = max(0, min(10, int(round(risk / 10.0))))
+    return "█" * filled + "─" * (10 - filled) + f"  {risk}/100"
+
+
+# Markers the LLM layer emits when it did not actually analyse the document
+# (no backend, no key, or nothing to read). Used to render a "skipped" state.
+_LLM_SKIP_MARKERS = ("not configured", "layer skipped", "no llm backend",
+                     "not installed", "no content or strings")
+
+
+def llm_skipped(ai: dict) -> bool:
+    detail = str(ai.get("details", "")).lower()
+    return any(marker in detail for marker in _LLM_SKIP_MARKERS)
+
+
 def layers_summary(result: dict) -> str:
-    """One-line per-layer breakdown: 'hash ✓ · VT 14/72 · AI 0.80'."""
+    """Compact per-layer breakdown, e.g. 'DB– fuzzy– macro✓ yara✓ VT14/72 AI0.80'.
+
+    Only the layers that actually ran contribute a token; unavailable/skipped
+    layers are omitted so the line stays readable across the seven layers."""
     sr = result.get("scan_results", {})
+    parts = []
+
     local = sr.get("local_database", {})
-    hash_part = "hash ✓" if local.get("is_malicious") else "hash –"
+    parts.append("DB✓" if local.get("is_malicious") else "DB–")
+
+    fuzzy = sr.get("fuzzy_hash", {})
+    if fuzzy.get("available"):
+        parts.append("fuzzy✓" if fuzzy.get("matched") else "fuzzy–")
+
+    macro = sr.get("macro_analysis", {})
+    if macro.get("available") and macro.get("has_macros"):
+        # Surface the most serious macro finding compactly.
+        if macro.get("critical"):
+            parts.append("macro!")          # exec/download primitive present
+        elif macro.get("autoexec"):
+            parts.append("macro⚡")          # auto-run trigger present
+        else:
+            parts.append("macro✓")
+    elif macro.get("available"):
+        parts.append("macro–")
+
+    yara = sr.get("yara", {})
+    if yara.get("available"):
+        n = len(yara.get("matches", []) or [])
+        parts.append(f"yara✓{n}" if yara.get("matched") else "yara–")
 
     vt = sr.get("virustotal", {})
     if "not configured" in str(vt.get("details", "")):
-        vt_part = "VT off"
+        parts.append("VT off")
     elif vt.get("error"):
-        vt_part = "VT err"
+        parts.append("VT err")
     elif vt.get("total_engines"):
         hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
-        vt_part = f"VT {hits}/{vt.get('total_engines', 0)}"
-    else:
-        vt_part = "VT 0/0"
+        parts.append(f"VT {hits}/{vt.get('total_engines', 0)}")
 
     ai = sr.get("chatgpt_analysis", {})
-    if "not configured" in str(ai.get("details", "")):
-        ai_part = "AI off"
-    else:
-        ai_part = f"AI {float(ai.get('confidence', 0) or 0):.2f}"
+    if not llm_skipped(ai):
+        parts.append(f"AI {float(ai.get('confidence', 0) or 0):.2f}")
 
-    return f"{hash_part} · {vt_part} · {ai_part}"
+    return "  ".join(parts)
 
 
 def humanize_delta(seconds: float) -> str:
@@ -327,9 +403,9 @@ class DetailWindow(ctk.CTkToplevel):
         outer = ctk.CTkScrollableFrame(self, fg_color=BG)
         outer.pack(fill="both", expand=True, padx=16, pady=16)
 
-        sev = float(result.get("severity_score", 0) or 0)
-        malicious = bool(result.get("is_malicious"))
-        verdict = "Malicious" if malicious else "Clean"
+        verdict = result_verdict(result)
+        risk = result_risk(result)
+        vcolor = verdict_color(verdict)
 
         head = ctk.CTkFrame(outer, fg_color=PANEL, corner_radius=10,
                             border_width=1, border_color=BORDER)
@@ -341,10 +417,10 @@ class DetailWindow(ctk.CTkToplevel):
                      justify="left").pack(fill="x", padx=14)
         vrow = ctk.CTkFrame(head, fg_color="transparent")
         vrow.pack(fill="x", padx=14, pady=(8, 12))
-        ctk.CTkLabel(vrow, text=severity_bar(sev), font=app.font_mono,
-                     text_color=severity_color(sev, malicious)).pack(side="left")
+        ctk.CTkLabel(vrow, text=risk_bar(risk), font=app.font_mono,
+                     text_color=vcolor).pack(side="left")
         ctk.CTkLabel(vrow, text=f"   {verdict}", font=app.font_bold,
-                     text_color=severity_color(sev, malicious)).pack(side="left")
+                     text_color=vcolor).pack(side="left")
 
         def info_section(title):
             sec = Section(outer, title, app)
@@ -375,8 +451,101 @@ class DetailWindow(ctk.CTkToplevel):
                      text_color=RED_SOFT if flagged else ACCENT_SOFT,
                      font=app.font_ui, anchor="w").pack(fill="x", padx=14, pady=10)
 
+        # --- Layer 2: fuzzy / structural hashing -----------------------------
+        fuzzy = sr.get("fuzzy_hash", {})
+        body = info_section("Layer 2 — fuzzy / structural hashing")
+        if not fuzzy.get("available", False):
+            ctk.CTkLabel(body, text="Skipped — fuzzy-hash libraries not installed "
+                                    "(python-tlsh / ppdeep).",
+                         text_color=AMBER_SOFT, font=app.font_ui,
+                         anchor="w").pack(fill="x", padx=14, pady=10)
+        else:
+            matched = fuzzy.get("matched")
+            if matched:
+                fams = sorted({m.get("family", "") for m in fuzzy.get("matches", [])
+                               if m.get("family")})
+                conf = float(fuzzy.get("best_confidence", 0) or 0)
+                msg = (f"Structural match to {', '.join(fams) or 'a known family'} "
+                       f"(confidence {conf:.2f})")
+            else:
+                msg = fuzzy.get("detail") or "No structural match in the signature database."
+            ctk.CTkLabel(body, text=msg,
+                         text_color=RED_SOFT if matched else ACCENT_SOFT,
+                         font=app.font_ui, anchor="w", wraplength=540,
+                         justify="left").pack(fill="x", padx=14, pady=(10, 2))
+            digest_bits = []
+            if fuzzy.get("tlsh"):
+                digest_bits.append(f"TLSH    {fuzzy['tlsh']}")
+            if fuzzy.get("ssdeep"):
+                digest_bits.append(f"ssdeep  {fuzzy['ssdeep']}")
+            if digest_bits:
+                ctk.CTkLabel(body, text="\n".join(digest_bits), text_color=MUTED,
+                             font=app.font_mono_small, anchor="w", wraplength=540,
+                             justify="left").pack(fill="x", padx=14, pady=(0, 10))
+            else:
+                ctk.CTkLabel(body, text="").pack(pady=2)
+
+        # --- Layer 3: VBA macro analysis -------------------------------------
+        macro = sr.get("macro_analysis", {})
+        body = info_section("Layer 3 — VBA macro analysis")
+        if not macro.get("available", False):
+            ctk.CTkLabel(body, text="Skipped — oletools not installed.",
+                         text_color=AMBER_SOFT, font=app.font_ui,
+                         anchor="w").pack(fill="x", padx=14, pady=10)
+        elif not macro.get("has_macros"):
+            ctk.CTkLabel(body, text=macro.get("detail") or "No VBA macros found.",
+                         text_color=ACCENT_SOFT, font=app.font_ui,
+                         anchor="w").pack(fill="x", padx=14, pady=10)
+        else:
+            autoexec = macro.get("autoexec") or []
+            critical = macro.get("critical") or []
+            suspicious = macro.get("suspicious") or []
+            iocs = macro.get("iocs") or []
+            dropper = bool(autoexec and critical)
+            headline = ("Auto-executing macro with an exec/download primitive "
+                        "(classic dropper pattern)" if dropper else "Macros present")
+            ctk.CTkLabel(body, text=headline,
+                         text_color=RED_SOFT if (critical or dropper) else AMBER_SOFT,
+                         font=app.font_ui, anchor="w", wraplength=540,
+                         justify="left").pack(fill="x", padx=14, pady=(10, 2))
+            for label, items in [("Auto-run", autoexec), ("Critical", critical),
+                                 ("Suspicious", suspicious[:8]), ("IOCs", iocs[:6])]:
+                if items:
+                    ctk.CTkLabel(body, text=f"{label}: " + ", ".join(map(str, items)),
+                                 text_color=MUTED, font=app.font_small, anchor="w",
+                                 wraplength=540, justify="left").pack(fill="x", padx=14)
+            ctk.CTkLabel(body, text="").pack(pady=2)
+
+        # --- Layer 4: YARA rules ---------------------------------------------
+        yara = sr.get("yara", {})
+        body = info_section("Layer 4 — YARA rules")
+        if not yara.get("available", False):
+            ctk.CTkLabel(body, text="Skipped — yara-python not installed.",
+                         text_color=AMBER_SOFT, font=app.font_ui,
+                         anchor="w").pack(fill="x", padx=14, pady=10)
+        elif not yara.get("matched"):
+            ctk.CTkLabel(body, text=yara.get("detail") or "No YARA rules matched.",
+                         text_color=ACCENT_SOFT, font=app.font_ui,
+                         anchor="w").pack(fill="x", padx=14, pady=10)
+        else:
+            top = yara.get("top_severity", "medium")
+            matches = yara.get("matches", []) or []
+            ctk.CTkLabel(body, text=f"{len(matches)} rule(s) matched · top severity: {top}",
+                         text_color=RED_SOFT, font=app.font_ui,
+                         anchor="w").pack(fill="x", padx=14, pady=(10, 2))
+            for m in matches:
+                desc = m.get("description", "")
+                line = f"•  {m.get('rule', '?')}  [{m.get('severity', 'medium')}]"
+                if desc:
+                    line += f" — {desc}"
+                ctk.CTkLabel(body, text=line, text_color=MUTED, font=app.font_small,
+                             anchor="w", wraplength=540,
+                             justify="left").pack(fill="x", padx=14)
+            ctk.CTkLabel(body, text="").pack(pady=2)
+
+        # --- Layer 5: VirusTotal ---------------------------------------------
         vt = sr.get("virustotal", {})
-        body = info_section("Layer 2 — VirusTotal reputation")
+        body = info_section("Layer 5 — VirusTotal reputation")
         if "not configured" in str(vt.get("details", "")):
             ctk.CTkLabel(body, text="Skipped — API key not configured (add it in Settings).",
                          text_color=AMBER_SOFT, font=app.font_ui,
@@ -403,10 +572,12 @@ class DetailWindow(ctk.CTkToplevel):
             else:
                 ctk.CTkLabel(body, text="").pack(pady=2)
 
+        # --- Layer 6: LLM semantic analysis ----------------------------------
         ai = sr.get("chatgpt_analysis", {})
-        body = info_section("Layer 3 — LLM semantic analysis")
-        if "not configured" in str(ai.get("details", "")):
-            ctk.CTkLabel(body, text="Skipped — API key not configured (add it in Settings).",
+        body = info_section("Layer 6 — LLM semantic analysis")
+        if llm_skipped(ai):
+            ctk.CTkLabel(body, text="Skipped — no LLM backend available "
+                                    "(start a local Ollama or set an OpenAI key).",
                          text_color=AMBER_SOFT, font=app.font_ui,
                          anchor="w").pack(fill="x", padx=14, pady=10)
         else:
@@ -427,6 +598,27 @@ class DetailWindow(ctk.CTkToplevel):
                              justify="left").pack(fill="x", padx=14, pady=(2, 10))
             else:
                 ctk.CTkLabel(body, text="").pack(pady=2)
+
+        # --- Why this verdict: weighted score breakdown ----------------------
+        breakdown = result.get("score_breakdown", {})
+        contribs = breakdown.get("contributions", []) or []
+        if contribs:
+            body = info_section("Score breakdown — why this verdict")
+            for c in contribs:
+                rowf = ctk.CTkFrame(body, fg_color="transparent")
+                rowf.pack(fill="x", padx=14, pady=2)
+                ctk.CTkLabel(rowf, text=f"+{float(c.get('points', 0)):>5.1f}", width=52,
+                             anchor="w", text_color=TEXT,
+                             font=app.font_mono_small).pack(side="left")
+                ctk.CTkLabel(rowf, text=f"[{c.get('category', '?')}] {c.get('indicator', '?')}",
+                             anchor="w", text_color=TEXT, font=app.font_small,
+                             wraplength=440, justify="left").pack(side="left",
+                                                                  fill="x", expand=True)
+            totals = breakdown.get("category_totals", {})
+            tnz = ", ".join(f"{k} {v:g}" for k, v in totals.items() if v)
+            ctk.CTkLabel(body, text=f"Category totals: {tnz}" if tnz else "",
+                         text_color=MUTED, font=app.font_small,
+                         anchor="w").pack(fill="x", padx=14, pady=(4, 10))
 
         actions = ctk.CTkFrame(outer, fg_color="transparent")
         actions.pack(fill="x", pady=(14, 0))
@@ -486,12 +678,20 @@ class DashboardPage(BasePage):
         cards.app = app
         cards.pack(fill="x", pady=(14, 0))
         cards.grid_columnconfigure((0, 1, 2), weight=1, uniform="cards")
+        # Row 0 — technical layers (exact + structural)
         self.card_db = StatCard(cards, "Hash database")
-        self.card_db.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        self.card_db.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
+        self.card_fuzzy = StatCard(cards, "Fuzzy hashing")
+        self.card_fuzzy.grid(row=0, column=1, sticky="nsew", padx=4, pady=(0, 8))
+        self.card_macro = StatCard(cards, "Macro analysis")
+        self.card_macro.grid(row=0, column=2, sticky="nsew", padx=(8, 0), pady=(0, 8))
+        # Row 1 — structural / reputation / semantic
+        self.card_yara = StatCard(cards, "YARA rules")
+        self.card_yara.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
         self.card_vt = StatCard(cards, "VirusTotal")
-        self.card_vt.grid(row=0, column=1, sticky="nsew", padx=4)
+        self.card_vt.grid(row=1, column=1, sticky="nsew", padx=4)
         self.card_ai = StatCard(cards, "LLM analysis")
-        self.card_ai.grid(row=0, column=2, sticky="nsew", padx=(8, 0))
+        self.card_ai.grid(row=1, column=2, sticky="nsew", padx=(8, 0))
 
         prog = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10,
                             border_width=1, border_color=BORDER)
@@ -525,11 +725,11 @@ class DashboardPage(BasePage):
 
         tree_holder = ctk.CTkFrame(table_frame, fg_color="transparent")
         tree_holder.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.tree = ttk.Treeview(tree_holder, columns=("file", "layers", "severity", "verdict"),
+        self.tree = ttk.Treeview(tree_holder, columns=("file", "layers", "risk", "verdict"),
                                  show="headings", style="RD.Treeview", selectmode="browse")
-        for col, label, width, stretch in [("file", "File", 230, True),
-                                           ("layers", "Layers", 265, False),
-                                           ("severity", "Severity", 160, False),
+        for col, label, width, stretch in [("file", "File", 200, True),
+                                           ("layers", "Layers", 300, False),
+                                           ("risk", "Risk", 150, False),
                                            ("verdict", "Verdict", 90, False)]:
             self.tree.heading(col, text=label, anchor="w")
             self.tree.column(col, width=width, stretch=stretch, anchor="w")
@@ -558,21 +758,27 @@ class DashboardPage(BasePage):
         self.empty_label.place_forget()
 
     def add_result(self, result: dict):
-        sev = float(result.get("severity_score", 0) or 0)
-        malicious = bool(result.get("is_malicious"))
-        tag = "mal" if malicious else ("warn" if sev >= SEV_MED else "clean")
+        verdict = result_verdict(result)
+        risk = result_risk(result)
+        # Map the verdict band onto the three available row colours.
+        if verdict in ("Critical", "High"):
+            tag = "mal"
+        elif verdict in ("Medium", "Low"):
+            tag = "warn"
+        else:
+            tag = "clean"
         iid = self.tree.insert("", "end", values=(
             result.get("file_name", "?"),
             layers_summary(result),
-            severity_bar(sev),
-            "Malicious" if malicious else "Clean",
+            risk_bar(risk),
+            verdict,
         ), tags=(tag,))
         self.row_results[iid] = result
         self.tree.see(iid)
 
     def load_results(self, results, title):
         self.clear_results(title)
-        for result in sorted(results, key=lambda r: -float(r.get("severity_score", 0) or 0)):
+        for result in sorted(results, key=lambda r: -result_risk(r)):
             self.add_result(result)
         if not results:
             self.empty_label.place(relx=0.5, rely=0.55, anchor="center")
@@ -596,8 +802,9 @@ class DashboardPage(BasePage):
 
     def refresh_cards(self):
         app = self.app
-        count = len(app.scanner.hash_database)
-        db_exists = os.path.exists(app.scanner.kaggle_db_path)
+        scanner = app.scanner
+        count = len(scanner.hash_database)
+        db_exists = os.path.exists(scanner.kaggle_db_path)
         if count:
             self.card_db.update_card(f"{count:,}", "Loaded", True)
         elif db_exists:
@@ -605,12 +812,48 @@ class DashboardPage(BasePage):
         else:
             self.card_db.update_card("—", "Not imported", False)
 
-        vt_key = app.scanner.config.get("virustotal_api_key")
+        # Fuzzy hashing — available libs + loaded signature count.
+        if RS.FUZZY_AVAILABLE:
+            sigs = len(getattr(scanner.fuzzy_hasher, "signatures", []) or [])
+            self.card_fuzzy.update_card(
+                f"{sigs} sig" + ("s" if sigs != 1 else ""),
+                "TLSH + ssdeep" if sigs else "No signatures", bool(sigs))
+        else:
+            self.card_fuzzy.update_card("—", "Libs missing", False)
+
+        # Macro analysis — availability of olevba.
+        if RS.OLEVBA_AVAILABLE:
+            self.card_macro.update_card("olevba", "Ready", True)
+        else:
+            self.card_macro.update_card("—", "Libs missing", False)
+
+        # YARA — availability + number of compiled rule files.
+        if RS.YARA_AVAILABLE:
+            n_rules = getattr(scanner.yara_engine, "_rules_count", 0)
+            self.card_yara.update_card(
+                f"{n_rules} file" + ("s" if n_rules != 1 else ""),
+                "Compiled" if n_rules else "No rules", bool(n_rules))
+        else:
+            self.card_yara.update_card("—", "Libs missing", False)
+
+        vt_key = scanner.config.get("virustotal_api_key")
         self.card_vt.update_card("API v3", "Connected" if vt_key else "Key missing",
                                  bool(vt_key))
-        ai_key = app.scanner.config.get("chatgpt_api_key")
-        self.card_ai.update_card("GPT-4", "Ready" if ai_key else "Key missing",
-                                 bool(ai_key))
+
+        # LLM — reflect the active backend posture (local vs cloud vs off).
+        value, status, ok = self._llm_card_state(scanner)
+        self.card_ai.update_card(value, status, ok)
+
+    @staticmethod
+    def _llm_card_state(scanner):
+        """Map the active LLM backend to (value, status, ok) for its card."""
+        backend = getattr(scanner, "llm_backend", None)
+        name = backend.__class__.__name__ if backend else ""
+        if "Ollama" in name:
+            return (getattr(backend, "model", "ollama"), "Local · OPSEC", True)
+        if "OpenAI" in name:
+            return (scanner.config.get("openai_model", "openai"), "Cloud", True)
+        return ("—", "Disabled", False)
 
 
 class ScanPage(BasePage):
