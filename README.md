@@ -137,7 +137,7 @@ No extra Python package is needed — the scanner talks to Ollama over HTTP. If 
 ## 🚀 Installation
 
 ```bash
-git clone https://github.com/<your-username>/hybrid-ransomware-detector.git
+git clone https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector.git
 cd hybrid-ransomware-detector
 
 python -m venv .venv
