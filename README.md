@@ -9,7 +9,7 @@ A multi-layered scanner that inspects **PDF and Microsoft Word documents** for r
 
 Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), including optional autostart-at-login on each platform.
 
-Originally built as my B.Sc. graduation project (Grade: B+) as a three-layer scanner, then extended with structural detection (fuzzy hashing, macros, YARA), an OPSEC-preserving local LLM option, and a weighted scoring matrix. It is intended for **defensive and educational use** — analysing suspicious documents, not creating malware.
+Originally built as my B.Sc. graduation project as a three-layer scanner, then extended with structural detection (fuzzy hashing, macros, YARA), an OPSEC-preserving local LLM option, and a weighted scoring matrix. It is intended for **defensive and educational use** — analysing suspicious documents, not creating malware.
 
 ---
 
