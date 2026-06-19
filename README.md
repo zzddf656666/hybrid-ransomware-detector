@@ -370,7 +370,7 @@ This project is for **educational and defensive** purposes only — identifying 
 
 ## 👤 Author
 
-**Abdelrahman Fekry El-Maghraby** — Cybersecurity Specialist
-[LinkedIn](https://www.linkedin.com/in/abdelrahman-el-maghraby-994a8b226)
+**Abdelrahman El-Maghraby** — Cybersecurity Specialist
+[LinkedIn](https://www.linkedin.com/in/abdelrahman-el-maghraby/)
 
 Released under the [MIT License](LICENSE).
